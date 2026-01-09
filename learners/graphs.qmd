@@ -1,0 +1,207 @@
+---
+title: "breve"
+format: html
+---
+
+Vi prøver et nyt format - stadig en hjemmeside, men nu med downloadbart quartodokument (ja, tough titties hvis du er på rstudio)
+
+Men det fungerer fint i Rstudio på min maskine. Vi skal blot have det testet på en 
+maskine der ikke har positron installeret.
+
+
+På 
+
+"https://kb-dk.github.io/cultural-heritage-data-guides-Python/Explore%20Denmarks%20Letters.html"
+
+kan man læse en pythonistisk ting med analyse af de her breve.
+
+Og herfra kan man downloade en zipfil:
+"https://loar.kb.dk/handle/1902/49123"
+
+Den findes på 
+
+
+"https://kb-dk.github.io/cultural-heritage-data-guides-Python/Explore%20Denmarks%20Letters.html"
+
+```{r}
+# download.file("https://loar.kb.dk/bitstreams/15559883-a390-4ee2-8af2-4124948f7585/download",
+# "data/test.zip")
+```
+
+Den skal vi nok ikke have på en hjemmeside...
+
+```{r}
+library(tidyverse)
+# unzip("data/public_domain_Danmarks_Breve.zip", list = TRUE)
+```
+
+When we have downloaded the zip-file, we can extract the csv file that we
+are intererested in:
+```{r}
+# unzip("data/public_domain_Danmarks_Breve.zip", files="public_domain_Danmarks_Breve/Denmarks_letters_dataset.csv",
+# exdir="data", junkpaths = TRUE)
+```
+
+
+The zip file contains other data - xml-files for each letter in the dataset,
+an python-notebook with examples on what to do with the data, a list of danish stopwords, readme files etc.
+And, a separate __MACOSX folder that we can safely ignore, and should not even exist in zip files meant for distribution.
+
+Anyway...
+
+Metadata for the csv-file is nowhere to be found in the zip-file, but we can reconstruct it:
+
+
+```{r}
+data <- read_csv("data/Denmarks_letters_dataset.csv")
+names(data)
+
+```
+
+|column_name | datatype| content|
+|---|---|---|
+|url | string | url til den oprindelige udgivelse|
+|sender | string | Afsendere - den person der skrev brevet |
+|sender_st | string | Afsendere - den person der skrev brevet - uden foranstillet komma |
+|recipiant| string | modtager af brevet, en del foranstillede kommaer |
+|recipiant_st| string | modtager af brevet, uden foranstillede kommaer. Når der står recipiant i stedet for recipent, er det formentlig en fejl introduceret da data blev ekstraheret fra kilden |
+|geo_name| string| Adresse - er det adressen på afsender eller modtager? |
+|raw_date| string | Den rå dato fra brevet|
+|raw_text | string | Den rå tekst - indholdet af brevet |
+|year_st |dbl | Året - står st mon for standardiseret? Eller renset.|
+|text_st | string | Også en relativt rå tekst. Det lader til primært at være at der ikke er escapeteng for linieskift etc. Og så er der sat en masse whitespaces ind mellem punktumme. bindestreger lader også til at være erstattet med mellemrum. |
+|word_count |dbl | Antal ord i brevet |
+|geo_name_st | string | adresse - men kogt ned til bynavne. |
+|xml_file_name | string | navn på source xml-fil. |
+|pubTitle | string | Titlen på den oprindelige brevudgivelse |
+|pubAuthor | string | Udgiveren af den oprindelige brevudgivelse |
+|pubPublisher| string | Forlaget på hvilket den oprindelige brevudgivelse kom |
+|pubPublisher_st | string | Standardiseret forlagsnavn.|
+|pubPlace | string | lokation for udgivelsen|
+|pubPlace_st | string | Standardiseret lokation for udgivelsen|
+|pubDate| string | årstal - og hvorfor bliver den opfattet som string?  |
+
+pubDate står som string fordi der har sneget sig en "1903-09-18". Det kan ikke håndteres som hverken
+tal eller dato, så vi defaulter til text.
+
+Alle andre er text.
+
+Bemærk dog at i hans notebook, optræder year_st som float, og word_count som int. Er der noget her?
+Nej, det er blot fordi den rå tekst har eksempelvis 1864.00 stående. Hvorfor der gør det ved ingen, men det er 
+ikke et problem her.
+
+
+
+Så trin 1 er noget rensning af data.
+
+pubDate skal til dbl. vi behøver ikke gøre noget ved year_st. Vi har ikke brug for pubPlace. af pub* kolonnerne er det faktisk kun pubDate
+Vi har heller ikke brug for url, sender, og recipiant
+|url | string | url til den oprindelige udgivelse|
+|sender | string | Afsendere - den person der skrev brevet |
+|sender_st | string | Afsendere - den person der skrev brevet - uden foranstillet komma |
+|recipiant|
+
+
+```{r}
+data <- data |> 
+    select(sender_st, recipiant_st,  year_st, text_st, geo_name_st)
+
+
+```
+
+Det er så det data vi skriver til en fil, og indlæser. Vi kan også tilbyde de studerende at hente den direkte. HUSK VI SKAL HAVE RETTET STAVEFEJLEN I RECIPIANT_ST!
+
+
+```{r}
+library(GGally)
+library(network)
+library(sna)
+library(ggplot2)
+
+
+```
+
+Det er en lidt. Ja. 
+
+Nå. Sådan et netværk viser hvem der skriver til hvem. Vi kunne også gøre det ved steder,
+men kender vi både afsender og modtager adressen? Det tror jeg ikke.
+Så  - hvem skriver til hvem. Vi har brug for tokolonner:
+
+
+Vi kan nok ikke bruge rækker med NA-værdier til så meget:
+
+Men her er antallet af breve sendt fra sender_st til recipiant_st (se nu at få rettet den stavefejl.)
+
+Det er det vi kalder for edges. 
+```{r}
+edges <- data |> 
+    drop_na(c(sender_st, recipiant_st)) |> 
+    count(from = sender_st, to = recipiant_st)
+
+```
+
+Så skal vi have knuderne - det er hver enkelt person (eller entitet) der optræder. Enten som 
+afsender eller modtager. Så vi skal have en unik liste.
+
+
+```{r}
+nodes <- data |> 
+    select(sender_st, recipiant_st) |> 
+    pivot_longer(1:2) |> 
+    select(name = value) |> 
+    distinct(name) |> 
+    drop_na()
+```
+
+Så kan vi bygge et graf-objekt:
+
+
+```{r}
+library(ggraph)
+library(tidygraph)
+g <- tbl_graph(nodes = nodes, edges = edges, directed = TRUE)
+g <- g %>%
+  activate(edges) %>%
+  filter(n >= 3) %>%        # behold kun "tunge" forbindelser
+  activate(nodes) %>%
+  filter(!node_is_isolated())
+ggraph(g, layout = "fr") +
+  geom_edge_link(aes(width = n), alpha = 0.35, show.legend = TRUE) +
+  geom_node_point(size = 3) +
+  geom_node_text(aes(label = name), repel = TRUE, size = 3) +
+  scale_edge_width(range = c(2, 2.5)) +
+  theme_void()
+
+```
+
+hvilke andre layouts er der?
+der er flere, men ikke alle virker.
+fr
+focus
+nicely
+
+
+dh
+gem
+graphopt
+grid
+mds
+sphere
+randomly
+fr
+kk
+drl
+lgl
+
+
+Under alle omstændigheder er det tydeligt at se at der delnetværk.
+Netværk som ikke er forbundet med andre.
+
+Det er ikke så overraskende:
+
+Men vi kan kun vise det hvis vi husker at have url med i datasættet. Ellers er det knap så tydeligt at der er et antal kilder.
+
+
+
+Vi skal nok have lidt mere end bare det her. Det er lidt tyndt til to timer tror jeg.
+
