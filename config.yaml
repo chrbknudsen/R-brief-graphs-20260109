@@ -70,6 +70,7 @@ episodes:
 learners:
 - setup.md
 - reference.md
+- data-and-downloads.md
 
 # Information for Instructors
 instructors:
